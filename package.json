@@ -1,0 +1,6 @@
+{
+  "name": "lift-log",
+  "private": true,
+  "type": "module",
+  "description": "Personal workout and body weight tracker (static PWA)"
+}
