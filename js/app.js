@@ -93,7 +93,10 @@ function render() {
     $view.innerHTML = `<div class="card"><h2>Something went wrong</h2><p class="muted small mt">${esc(e.message)}</p><button class="btn mt" onclick="location.hash='#/workouts';location.reload()">Reload</button></div>`;
   }
 }
-window.addEventListener('hashchange', () => { window.scrollTo(0, 0); render(); });
+window.addEventListener('hashchange', () => {
+  if (editingSessionId && location.hash !== '#/session/' + editingSessionId) { editingSessionId = null; editSnapshot = null; } // leaving the page keeps whatever was saved so far
+  window.scrollTo(0, 0); render();
+});
 
 // ---------------------------------------------------------------- helpers
 function tmpl(id) { return liveTemplates(data).find(t => t.id === id); }
@@ -173,15 +176,47 @@ function startSession(templateId) {
 }
 
 // ---------------------------------------------------------------- Session logging
+let editingSessionId = null, editSnapshot = null;
+
+// Finished workouts open read-only; Edit switches to the same form used while training.
+function viewSessionReadOnly(s) {
+  const t = tmpl(s.templateId);
+  const prev = S.previousSession(data, s);
+  const prevEx = ex => prev && prev.exercises.find(p => p.id === ex.id || p.name === ex.name);
+  const p = S.sessionProgress(s, prev);
+  let html = `<div class="row between mb"><div><h1>${esc(t ? t.name : 'Workout')}</h1><div class="muted small">${fmtDateLong(s.date)}${prev ? ` · vs ${fmtDate(prev.date)}` : ' · first session'}</div></div>${progHtml(p)}</div>`;
+  for (const ex of s.exercises) {
+    const pex = prevEx(ex); const sum = S.exerciseSummary(ex);
+    html += `<div class="card ex-card"><div class="ex-title">${esc(ex.name)}</div>
+      <div class="ex-meta mb">${sum ? `top ${fmtKg(sum.topKg)} kg · vol ${Math.round(sum.volume)} · e1RM ${fmtKg(sum.e1rm, 0)}` : 'no sets logged'}</div>`;
+    if (sum) {
+      html += `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Set</th><th>Done</th><th>Last time</th><th></th></tr></thead><tbody>`;
+      ex.sets.forEach((set, si) => {
+        if (!S.setDone(set)) return;
+        const pset = pex && pex.sets[si]; const cm = cmpMarkup(set, pset);
+        html += `<tr><td class="muted">${si + 1}${isMyoSet(ex, set, si) ? ' <span class="badge">myo</span>' : ''}</td><td class="mono">${esc(setLabel(set))}</td><td class="mono muted">${pset ? esc(setLabel(pset)) : '–'}</td><td class="${cm.cls}">${cm.txt}</td></tr>`;
+      });
+      html += `</tbody></table></div>`;
+    }
+    html += `</div>`;
+  }
+  if (s.notes) html += `<div class="card"><div class="ex-meta">Notes</div><p style="white-space:pre-wrap">${esc(s.notes)}</p></div>`;
+  html += `<div class="sticky-actions"><a class="btn" href="#/history">← History</a><button class="btn primary grow" id="s-edit">Edit</button></div>`;
+  $view.innerHTML = html;
+  $view.querySelector('#s-edit').onclick = () => { editingSessionId = s.id; editSnapshot = JSON.stringify({ date: s.date, notes: s.notes, exercises: s.exercises }); render(); };
+}
+
 function viewSession(id) {
   const s = session(id);
   if (!s) { $view.innerHTML = '<div class="empty">Session not found. <a href="#/workouts">Back</a></div>'; return; }
+  if (!s.inProgress && editingSessionId !== s.id) return viewSessionReadOnly(s);
+  const editing = !s.inProgress; // editing a finished workout (vs. logging a live one)
   const t = tmpl(s.templateId);
   const prev = S.previousSession(data, s);
   const prevEx = ex => prev && prev.exercises.find(p => p.id === ex.id || p.name === ex.name);
 
   let html = `<div class="row between mb"><div><h1>${esc(t ? t.name : 'Workout')}</h1><div class="muted small">${prev ? `vs ${fmtDate(prev.date)} (${agoLabel(prev.date)})` : 'first time · nothing to compare yet'}</div></div>
-    <span class="badge ${s.inProgress ? 'accent' : ''}">${s.inProgress ? 'in progress' : 'finished'}</span></div>
+    <span class="badge ${s.inProgress ? 'accent' : ''}">${s.inProgress ? 'in progress' : 'editing'}</span></div>
     <div class="card"><div class="row"><label class="field grow" style="margin:0"><span>Date</span><input type="date" id="s-date" value="${s.date}" max="${todayStr()}"></label></div></div>`;
 
   // group exercises into superset groups
@@ -209,17 +244,23 @@ function viewSession(id) {
   }
   html += `<div class="card"><label class="field" style="margin:0"><span>Notes</span><textarea id="s-notes" placeholder="How did it go? Pain, sleep, anything worth remembering…">${esc(s.notes || '')}</textarea></label></div>`;
   html += `<div class="sticky-actions">
-      <button class="btn danger" id="s-delete">Delete</button>
-      <button class="btn primary grow" id="s-finish">${s.inProgress ? 'Finish workout' : 'Done'}</button>
-    </div>`;
+      ${editing ? `<button class="btn" id="s-cancel">Cancel</button>` : ''}
+      <button class="btn primary grow" id="s-finish">${s.inProgress ? 'Finish workout' : 'Save changes'}</button>
+    </div>
+    <div style="text-align:center;margin-top:28px"><button class="btn ghost danger small" id="s-delete">Delete this workout</button></div>`;
   $view.innerHTML = html;
 
   // handlers
   $view.querySelector('#s-date').onchange = e => { s.date = e.target.value || todayStr(); touch(s); render(); };
   $view.querySelector('#s-notes').oninput = e => { s.notes = e.target.value; touch(s); };
   $view.querySelector('#s-delete').onclick = () => {
-    if (!confirm('Delete this session? This cannot be undone.')) return;
-    s.deleted = true; touch(s); go('#/workouts'); toast('Session deleted');
+    if (!confirm(`Delete this ${t ? t.name : ''} workout from ${fmtDate(s.date)}? This cannot be undone.`)) return;
+    s.deleted = true; touch(s); editingSessionId = null; go('#/history'); toast('Workout deleted');
+  };
+  const cancel = $view.querySelector('#s-cancel');
+  if (cancel) cancel.onclick = () => {
+    if (editSnapshot) { Object.assign(s, JSON.parse(editSnapshot)); touch(s); }
+    editingSessionId = null; editSnapshot = null; render(); toast('Changes discarded');
   };
   $view.querySelector('#s-finish').onclick = () => {
     if (s.inProgress) {
@@ -229,8 +270,11 @@ function viewSession(id) {
       const p = S.sessionProgress(s, prev);
       toast(p ? `Finished · ▲${p.up} =${p.same} ▼${p.down} vs last time` : 'Finished · first session logged');
       doSync(`${t ? t.name : 'Workout'} ${s.date}`);
+      go('#/history');
+    } else {
+      editingSessionId = null; editSnapshot = null;
+      doSync(`Edit ${t ? t.name : 'workout'} ${s.date}`); toast('Saved'); render();
     }
-    go('#/history');
   };
   $view.querySelectorAll('[data-addset]').forEach(b => b.onclick = () => { const ex = s.exercises[+b.dataset.addset]; const last = ex.sets[ex.sets.length - 1]; ex.sets.push({ kg: last ? last.kg : '', reps: '', myo: [], isMyo: false }); touch(s); render(); });
   $view.querySelectorAll('[data-mtoggle]').forEach(b => b.onclick = () => {
