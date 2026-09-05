@@ -20,7 +20,7 @@ function persist() { saveData(data); scheduleSync(); }
 function persistLocal() { saveLocal(local); }
 
 // ---------------------------------------------------------------- sync
-let syncTimer = null, syncing = false, syncQueued = false;
+let syncTimer = null, syncing = false, syncQueued = false, lastSyncError = '';
 function scheduleSync(delay = 1500) {
   if (!gh.configured) { setStatus('local', 'Local only'); return; }
   clearTimeout(syncTimer);
@@ -35,9 +35,11 @@ async function doSync(message) {
     const before = stableStringify(data);
     const merged = await gh.sync(data, message || 'Update from Lift Log');
     if (stableStringify(merged) !== before) { data = merged; saveData(data); render(); }
+    lastSyncError = '';
     setStatus('ok', 'Synced ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
   } catch (e) {
-    console.error(e); setStatus('err', 'Sync failed'); toast(e.message);
+    console.error(e); setStatus('err', 'Sync failed'); lastSyncError = e.message; toast(e.message, 6000);
+    const m = document.getElementById('gh-msg'); if (m) m.textContent = e.message;
   } finally {
     syncing = false;
     if (syncQueued) { syncQueued = false; scheduleSync(500); }
@@ -502,7 +504,8 @@ function viewSettings() {
       <div class="row"><label class="field grow"><span>Owner</span><input type="text" id="gh-owner" value="${esc(c.owner)}" autocapitalize="off"></label><label class="field grow"><span>Repository</span><input type="text" id="gh-repo" value="${esc(c.repo)}" autocapitalize="off"></label></div>
       <div class="row"><label class="field grow"><span>File path</span><input type="text" id="gh-path" value="${esc(c.path)}" autocapitalize="off"></label><label class="field grow"><span>Branch</span><input type="text" id="gh-branch" value="${esc(c.branch || 'main')}" autocapitalize="off"></label></div>
       <label class="field"><span>Fine-grained personal access token (Contents: read &amp; write on that repo)</span><input type="password" id="gh-token" value="${esc(c.token || '')}" placeholder="github_pat_…" autocapitalize="off" autocomplete="off"></label>
-      <div class="row"><button class="btn primary" id="gh-save">Save &amp; sync now</button><span class="muted small" id="gh-msg">${gh.configured ? 'Configured' : 'Not configured'}</span></div>
+      <div class="row wrap"><button class="btn primary" id="gh-save">Save &amp; sync now</button><button class="btn" id="gh-test">Test connection</button></div>
+      <p class="small mt ${lastSyncError ? 'bad' : 'muted'}" id="gh-msg" style="white-space:pre-line">${esc(lastSyncError || (gh.configured ? 'Configured' : 'Not configured'))}</p>
     </div>
     <details class="mt"><summary class="small">How to create the token</summary><ol class="small muted" style="padding-left:18px;line-height:1.6">
       <li>GitHub → Settings → Developer settings → Personal access tokens → <b>Fine-grained tokens</b> → Generate new token.</li>
@@ -533,9 +536,19 @@ function viewSettings() {
     persistLocal(); gh = new GitHubSync(local.sync);
     const msg = $view.querySelector('#gh-msg');
     if (!gh.configured) { msg.textContent = 'Not configured (token missing)'; setStatus('local', 'Local only'); return; }
-    msg.textContent = 'Syncing…';
+    msg.textContent = 'Syncing…'; msg.className = 'small mt muted';
     await doSync('Sync from Lift Log settings');
-    msg.textContent = $status.classList.contains('ok') ? 'Connected and synced ✓' : 'Failed – check token / repo name';
+    if ($status.classList.contains('ok')) { msg.textContent = 'Connected and synced ✓'; }
+    else { msg.className = 'small mt bad'; msg.textContent = (lastSyncError || 'Sync failed') + '\nTap "Test connection" for details.'; }
+  };
+  $view.querySelector('#gh-test').onclick = async () => {
+    const msg = $view.querySelector('#gh-msg');
+    const cfg = { owner: val('#gh-owner'), repo: val('#gh-repo'), path: val('#gh-path') || 'data.json', branch: val('#gh-branch') || 'main', token: val('#gh-token') };
+    const probe = new GitHubSync(cfg);
+    if (!probe.configured) { msg.textContent = 'Fill in owner, repo and token first.'; return; }
+    msg.className = 'small mt muted'; msg.textContent = 'Testing…';
+    try { const r = await probe.diagnose(); msg.className = 'small mt ' + (r.ok ? 'muted' : 'bad'); msg.textContent = r.lines.join('\n'); }
+    catch (e) { msg.className = 'small mt bad'; msg.textContent = 'Test failed: ' + e.message; }
   };
   $view.querySelector('#t-add').onclick = () => {
     const n = tl.length + 1;
