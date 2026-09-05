@@ -76,6 +76,7 @@ if ($hasRemote) {
   }
   if (-not (Test-Path 'README.md')) { "# workout-data`n`nPrivate data for Lift Log. Written by the app via the GitHub API." | Set-Content -Encoding UTF8 'README.md' }
   git add -A; git commit -m "Initial empty data" | Out-Null
+  git branch -M main   # older git creates 'master' first; rename needs a commit to exist
   git push -u origin main
   Fail "Pushing $dataRepo failed"
 }
