@@ -2,7 +2,8 @@
 # Prerequisite: `gh auth login` (browser login) done once on this machine.
 # Safe to re-run: every step checks whether it is already done.
 
-$ErrorActionPreference = 'Stop'
+# 'Continue' on purpose: with 'Stop', PowerShell turns redirected stderr of git/gh into fatal errors.
+$ErrorActionPreference = 'Continue'
 $owner    = 'vgikic'
 $codeRepo = 'workout-tracker'
 $dataRepo = 'workout-data'
@@ -13,10 +14,13 @@ $gh = Get-Command gh -ErrorAction SilentlyContinue
 if (-not $gh) { $gh = "C:\Program Files\GitHub CLI\gh.exe" } else { $gh = $gh.Source }
 if (-not (Test-Path $gh)) { throw "GitHub CLI not found. Install with: winget install GitHub.cli" }
 
-& $gh auth status 2>$null
-if ($LASTEXITCODE -ne 0) { throw "Not logged in. Run:  gh auth login   (choose GitHub.com, HTTPS, login with browser) and re-run this script." }
+$prev = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+& $gh auth status 2>$null | Out-Null
+$authed = ($LASTEXITCODE -eq 0); $ErrorActionPreference = $prev
+if (-not $authed) { throw "Not logged in. Run:  gh auth login   (choose GitHub.com, HTTPS, login with browser) and re-run this script." }
 
-function RepoExists($name) { & $gh repo view "$owner/$name" 2>$null | Out-Null; return $LASTEXITCODE -eq 0 }
+function RepoExists($name) { & $gh api "repos/$owner/$name" --silent 2>$null | Out-Null; return ($LASTEXITCODE -eq 0) }
+function Fail($msg) { if ($LASTEXITCODE -ne 0) { throw $msg } }
 
 # ---- 1. public code repo ------------------------------------------------------
 Set-Location $here
@@ -32,10 +36,13 @@ git branch -M main 2>$null
 if (git status --porcelain) { git add -A; git commit -m "Update" | Out-Null }
 Write-Host "Pushing code"
 git push -u origin main
+Fail "Pushing $codeRepo failed"
 
 # ---- 2. GitHub Pages ------------------------------------------------------------
-& $gh api "repos/$owner/$codeRepo/pages" 2>$null | Out-Null
-if ($LASTEXITCODE -ne 0) {
+$prev = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+& $gh api "repos/$owner/$codeRepo/pages" --silent 2>$null | Out-Null
+$pagesMissing = ($LASTEXITCODE -ne 0); $ErrorActionPreference = $prev
+if ($pagesMissing) {
   Write-Host "Enabling GitHub Pages (main branch, root)"
   & $gh api --method POST "repos/$owner/$codeRepo/pages" -f "source[branch]=main" -f "source[path]=/" | Out-Null
 } else { Write-Host "GitHub Pages already enabled" }
@@ -50,8 +57,10 @@ New-Item -ItemType Directory -Force $dataDir | Out-Null
 Set-Location $dataDir
 if (-not (Test-Path (Join-Path $dataDir '.git'))) { git init | Out-Null; git branch -M main 2>$null }
 if (-not (git remote 2>$null | Select-String -SimpleMatch 'origin')) { git remote add origin "https://github.com/$owner/$dataRepo.git" }
+$prev = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
 git fetch origin main 2>$null
-if ($LASTEXITCODE -eq 0) {
+$hasRemote = ($LASTEXITCODE -eq 0); $ErrorActionPreference = $prev
+if ($hasRemote) {
   git reset --hard origin/main | Out-Null
   Write-Host "Data repo already has content"
 } else {
@@ -68,6 +77,7 @@ if ($LASTEXITCODE -eq 0) {
   if (-not (Test-Path 'README.md')) { "# workout-data`n`nPrivate data for Lift Log. Written by the app via the GitHub API." | Set-Content -Encoding UTF8 'README.md' }
   git add -A; git commit -m "Initial empty data" | Out-Null
   git push -u origin main
+  Fail "Pushing $dataRepo failed"
 }
 Set-Location $here
 
