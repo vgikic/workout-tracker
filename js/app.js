@@ -1,4 +1,4 @@
-import { loadData, saveData, loadLocal, saveLocal, liveSessions, liveWeights, liveTemplates, mergeData, normalize, stableStringify, emptyData } from './store.js';
+import { loadData, saveData, loadLocal, saveLocal, liveSessions, liveWeights, liveTemplates, mergeData, normalize, stableStringify, emptyData, migrateTemplates } from './store.js';
 import { GitHubSync } from './sync.js';
 import { DEFAULT_TEMPLATES, slug } from './templates.js';
 import * as S from './stats.js';
@@ -7,6 +7,7 @@ import { todayStr, fmtDate, fmtDateLong, uid, fmtKg, esc, h, raw, restLabel, par
 
 // ---------------------------------------------------------------- state
 let data = loadData();
+if (migrateTemplates(data)) saveData(data);
 let local = loadLocal();
 local.sync = local.sync || { owner: 'vgikic', repo: 'workout-data', path: 'data.json', branch: 'main', token: '' };
 let gh = new GitHubSync(local.sync);
@@ -34,7 +35,7 @@ async function doSync(message) {
   try {
     const before = stableStringify(data);
     const merged = await gh.sync(data, message || 'Update from Lift Log');
-    if (stableStringify(merged) !== before) { data = merged; saveData(data); render(); }
+    if (stableStringify(merged) !== before) { data = merged; migrateTemplates(data); saveData(data); render(); }
     lastSyncError = '';
     setStatus('ok', 'Synced ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
   } catch (e) {
@@ -138,16 +139,16 @@ function viewWorkouts() {
     }
   }
   html += `<div class="section-title"><h2>Workouts</h2><span class="muted small">tap to start</span></div>`;
-  for (const t of tl) {
+  tl.forEach((t, idx) => {
     const last = S.lastSessionOfTemplate(data, t.id);
     const count = S.sessionsForTemplate(data, t.id).length;
     html += `<div class="card clickable wk-card ${t.id === nextId ? 'next' : ''}" data-start="${t.id}">
-      <div class="wk-num">${esc(t.name.replace(/\D/g, '') || t.name[0])}</div>
+      <div class="wk-num">${idx + 1}</div>
       <div class="grow"><div class="row between"><div class="ex-title">${esc(t.name)}</div>${t.id === nextId ? '<span class="badge accent">Next</span>' : ''}</div>
         <div class="muted small">${esc(t.subtitle || '')}</div>
         <div class="muted tiny mt" style="margin-top:4px">${t.exercises.length} exercises · ${last ? `last ${fmtDate(last.date)} (${agoLabel(last.date)})` : 'never done'} · ${count} sessions</div></div>
     </div>`;
-  }
+  });
   const w = liveWeights(data); const lastW = w[w.length - 1];
   html += `<div class="section-title"><h2>Body weight</h2><a href="#/weight" class="small">details</a></div>
     <div class="card"><div class="row between"><div><div class="ex-title">${lastW ? fmtKg(Number(lastW.kg)) + ' kg' : 'No entries yet'}</div><div class="muted small">${lastW ? (lastW.date === todayStr() ? 'today' : 'last entry ' + fmtDate(lastW.date)) : 'log your morning weight'}</div></div>
@@ -164,7 +165,7 @@ function startSession(templateId) {
   if (existing && !confirm(`${t.name} already has an unfinished session from ${fmtDate(existing.date)}. Start a new one anyway?`)) { go('#/session/' + existing.id); return; }
   const s = {
     id: uid(), templateId, date: todayStr(), startedAt: Date.now(), inProgress: true, notes: '',
-    exercises: t.exercises.map(e => ({ id: e.id, name: e.name, rest: e.rest, myoLast: !!e.myoLast, supersetWithPrev: !!e.supersetWithPrev, sets: Array.from({ length: e.sets }, () => ({ kg: '', reps: '', myo: [] })) })),
+    exercises: t.exercises.map(e => ({ id: e.id, name: e.name, rest: e.rest, myoLast: !!e.myoLast, supersetWithPrev: !!e.supersetWithPrev, sets: Array.from({ length: e.sets }, (_, si) => ({ kg: '', reps: '', myo: [], isMyo: !!e.myoLast && si === e.sets - 1 })) })),
     updatedAt: Date.now(),
   };
   data.sessions.push(s); persist();
@@ -231,7 +232,19 @@ function viewSession(id) {
     }
     go('#/history');
   };
-  $view.querySelectorAll('[data-addset]').forEach(b => b.onclick = () => { s.exercises[+b.dataset.addset].sets.push({ kg: '', reps: '', myo: [] }); touch(s); render(); });
+  $view.querySelectorAll('[data-addset]').forEach(b => b.onclick = () => { const ex = s.exercises[+b.dataset.addset]; const last = ex.sets[ex.sets.length - 1]; ex.sets.push({ kg: last ? last.kg : '', reps: '', myo: [], isMyo: false }); touch(s); render(); });
+  $view.querySelectorAll('[data-mtoggle]').forEach(b => b.onclick = () => {
+    const ex = s.exercises[+b.dataset.ex]; const set = ex.sets[+b.dataset.set];
+    set.isMyo = !isMyoSet(ex, set, +b.dataset.set);
+    if (!set.isMyo) set.myo = [];
+    touch(s); render();
+  });
+  $view.querySelectorAll('[data-copylast]').forEach(b => b.onclick = () => {
+    const ex = s.exercises[+b.dataset.copylast]; const pex = prevEx(ex);
+    if (!pex) return;
+    ex.sets = pex.sets.map((ps, si) => ({ kg: ps.kg, reps: ps.reps, myo: [...(ps.myo || [])], isMyo: isMyoSet(pex, ps, si) }));
+    touch(s); render(); toast(`Copied last ${ex.name} · adjust and beat it`);
+  });
   $view.querySelectorAll('[data-rmset]').forEach(b => b.onclick = () => { const ex = s.exercises[+b.dataset.rmset]; if (ex.sets.length > 1) { ex.sets.pop(); touch(s); render(); } });
   $view.querySelectorAll('input[data-ex]').forEach(inp => {
     inp.oninput = () => {
@@ -239,6 +252,19 @@ function viewSession(id) {
       const f = inp.dataset.field;
       if (f === 'myo') set.myo = parseMyo(inp.value);
       else set[f] = inp.value === '' ? '' : Number(inp.value);
+      if (f === 'kg') {
+        // same weight for every set of an exercise: propagate to sets that are empty or still hold the old value
+        const old = inp.dataset.prev ?? '';
+        ex.sets.forEach((other, j) => {
+          if (j === +inp.dataset.set) return;
+          if (String(other.kg ?? '') === '' || String(other.kg) === String(old)) {
+            other.kg = set.kg;
+            const oi = $view.querySelector(`input[data-ex="${inp.dataset.ex}"][data-set="${j}"][data-field="kg"]`);
+            if (oi) { oi.value = set.kg; oi.dataset.prev = inp.value; const pj = pexSets(ex)[j]; const c2 = $view.querySelector(`.cmp[data-ex="${inp.dataset.ex}"][data-set="${j}"]`); if (c2) { const r2 = cmpMarkup(other, pj); c2.className = r2.cls; c2.textContent = r2.txt; } }
+          }
+        });
+        inp.dataset.prev = inp.value;
+      }
       touch(s);
       // live update of compare marker and myo summary without re-render (keeps keyboard focus)
       const pex = prevEx(ex); const pset = pex && pex.sets[+inp.dataset.set];
@@ -252,12 +278,19 @@ function viewSession(id) {
   });
 
   function touch(sess) { sess.updatedAt = Date.now(); persist(); }
+  function pexSets(ex) { const p = prevEx(ex); return p ? p.sets : []; }
+}
+// A set is a myo-rep match set if flagged on the set itself; older sessions fall back to the template's "last set" flag.
+function isMyoSet(ex, set, si) {
+  if (set.isMyo !== undefined) return !!set.isMyo;
+  return (!!ex.myoLast && si === ex.sets.length - 1) || (set.myo && set.myo.length > 0);
 }
 function shortName(n) { return n.split(' ').slice(-1)[0].toLowerCase(); }
 function exHeader(ex, i, pex, compact = false) {
   const psum = pex && S.exerciseSummary(pex);
-  return `<div class="row between" style="margin-bottom:${compact ? 4 : 6}px"><div><div class="ex-title">${esc(ex.name)}</div>
-    <div class="ex-meta">${ex.sets.length} sets · rest ${restLabel(ex.rest)}${ex.myoLast ? ' · last set myo-rep match' : ''}${psum ? ` · last: top ${fmtKg(psum.topKg)} kg, vol ${Math.round(psum.volume)}` : ''}</div></div></div>`;
+  return `<div class="row between" style="margin-bottom:${compact ? 4 : 6}px"><div class="grow"><div class="ex-title">${esc(ex.name)}</div>
+    <div class="ex-meta">${ex.sets.length} sets · rest ${restLabel(ex.rest)}${psum ? ` · last: top ${fmtKg(psum.topKg)} kg, vol ${Math.round(psum.volume)}` : ''}</div></div>
+    ${psum ? `<button class="btn small" data-copylast="${i}" title="Fill every set with last time's numbers">⟲ Copy last</button>` : ''}</div>`;
 }
 function cmpMarkup(set, pset) {
   const c = S.compareSet(set, pset);
@@ -268,7 +301,7 @@ function cmpMarkup(set, pset) {
 }
 function myoSummary(set, pset) {
   const m = set.myo || [];
-  if (!Number(set.reps)) return 'Activation reps go in the Reps box, mini-set reps here (e.g. 4 4 4).';
+  if (!Number(set.reps)) return 'Myo-rep match: activation reps in the Reps box, mini-set reps here (e.g. 4 4 4).';
   if (!m.length) return `Target: match ${set.reps} reps in mini-sets, ~20 s rest between.`;
   const total = sumArr(m);
   let txt = `${total}/${set.reps} matched in ${m.length} mini-set${m.length === 1 ? '' : 's'} (total ${Number(set.reps) + total} reps)`;
@@ -276,11 +309,12 @@ function myoSummary(set, pset) {
   return txt;
 }
 function setRow(ex, i, si, set, pset, ssName) {
-  const isMyo = ex.myoLast && si === ex.sets.length - 1;
+  const isMyo = isMyoSet(ex, set, si);
   const cm = cmpMarkup(set, pset);
+  const kgVal = set.kg === '' || set.kg == null ? '' : set.kg;
   let html = `<div class="set-row ${isMyo ? 'myo' : ''}">
-    <span class="n" title="${ssName ? esc(ssName) : ''}">${ssName ? esc(ssName[0].toUpperCase()) : ''}${si + 1}</span>
-    <input type="number" inputmode="decimal" step="0.5" min="0" placeholder="${pset && S.setDone(pset) ? fmtKg(Number(pset.kg)) : 'kg'}" value="${set.kg === '' || set.kg == null ? '' : set.kg}" data-ex="${i}" data-set="${si}" data-field="kg">
+    <button class="n" data-mtoggle data-ex="${i}" data-set="${si}" title="${isMyo ? 'Myo-rep match set – tap to make it a normal set' : 'Tap to make this a myo-rep match set'}">${ssName ? esc(ssName[0].toUpperCase()) : ''}${si + 1}</button>
+    <input type="number" inputmode="decimal" step="0.5" min="0" placeholder="${pset && S.setDone(pset) ? fmtKg(Number(pset.kg)) : 'kg'}" value="${kgVal}" data-prev="${kgVal}" data-ex="${i}" data-set="${si}" data-field="kg">
     <input type="number" inputmode="numeric" step="1" min="0" placeholder="${pset && S.setDone(pset) ? pset.reps : 'reps'}" value="${set.reps === '' || set.reps == null ? '' : set.reps}" data-ex="${i}" data-set="${si}" data-field="reps">
     <span class="prev">${pset ? esc(setLabel(pset)) : '–'}</span>
     <span class="${cm.cls}" data-ex="${i}" data-set="${si}">${cm.txt}</span>
@@ -385,7 +419,7 @@ function viewHistory() {
   let list = liveSessions(data).filter(s => !s.inProgress).sort((a, b) => (a.date + (a.startedAt || 0)) < (b.date + (b.startedAt || 0)) ? 1 : -1);
   if (ui.histFilter !== 'all') list = list.filter(s => s.templateId === ui.histFilter);
   let html = `<h1 class="mb">History</h1>
-    <div class="chips scroll mb"><button class="chip ${ui.histFilter === 'all' ? 'active' : ''}" data-f="all">All</button>${tl.map(t => `<button class="chip ${ui.histFilter === t.id ? 'active' : ''}" data-f="${t.id}">${esc(t.name.replace('Workout ', 'W'))}</button>`).join('')}</div>`;
+    <div class="chips scroll mb"><button class="chip ${ui.histFilter === 'all' ? 'active' : ''}" data-f="all">All</button>${tl.map(t => `<button class="chip ${ui.histFilter === t.id ? 'active' : ''}" data-f="${t.id}">${esc(t.name)}</button>`).join('')}</div>`;
   if (!list.length) html += `<div class="card empty"><div class="big">📅</div>No finished workouts yet.</div>`;
   let lastMonth = '';
   for (const s of list) {
@@ -420,7 +454,7 @@ function viewStats() {
   if (!exList.find(([id]) => id === ui.statsExercise)) ui.statsExercise = exList[0]?.[0] || null;
 
   let html = `<h1 class="mb">Progress</h1>
-    <div class="chips scroll mb">${tl.map(x => `<button class="chip ${x.id === ui.statsTemplate ? 'active' : ''}" data-t="${x.id}">${esc(x.name.replace('Workout ', 'W'))}</button>`).join('')}</div>`;
+    <div class="chips scroll mb">${tl.map(x => `<button class="chip ${x.id === ui.statsTemplate ? 'active' : ''}" data-t="${x.id}">${esc(x.name)}</button>`).join('')}</div>`;
   html += periodChips(ui.statsPeriod, 'stats');
 
   // workout-level volume

@@ -32,6 +32,20 @@ export function loadLocal() {
 }
 export function saveLocal(obj) { localStorage.setItem(LOCAL_KEY, JSON.stringify(obj)); }
 
+// One-off upgrades of stored templates when the built-in defaults change.
+// Only touches templates the user has not renamed (still called "Workout N").
+export function migrateTemplates(data) {
+  let changed = false;
+  for (const def of DEFAULT_TEMPLATES) {
+    const t = data.templates.find(x => x.id === def.id && !x.deleted);
+    if (!t || !/^Workout \d+$/.test(t.name || '')) continue;
+    t.name = def.name; t.subtitle = def.subtitle;
+    if (def.id === 'w6') t.exercises = def.exercises.map(e => ({ ...e })); // Pull B was redefined
+    t.updatedAt = Date.now(); changed = true;
+  }
+  return changed;
+}
+
 export function normalize(d) {
   const base = emptyData();
   const out = { version: 1, templates: [], sessions: [], weights: [] };

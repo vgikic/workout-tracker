@@ -13,7 +13,7 @@ export function slug(name) {
 
 export const DEFAULT_TEMPLATES = [
   {
-    id: 'w1', name: 'Workout 1', subtitle: 'Chest · Triceps · Shoulders',
+    id: 'w1', name: 'Push A', subtitle: 'Incline DB press · Chest press · Triceps · Shoulders',
     exercises: [
       ex('Incline dumbbell bench press (30°)', 3, 180),
       ex('Machine chest press', 3, 180),
@@ -24,7 +24,7 @@ export const DEFAULT_TEMPLATES = [
     ],
   },
   {
-    id: 'w2', name: 'Workout 2', subtitle: 'Legs',
+    id: 'w2', name: 'Legs A', subtitle: 'Squat · Quads · Hamstrings · Calves',
     exercises: [
       ex('Squat', 2, 300),
       ex('Single leg extension', 3, 120),
@@ -34,7 +34,7 @@ export const DEFAULT_TEMPLATES = [
     ],
   },
   {
-    id: 'w3', name: 'Workout 3', subtitle: 'Biceps · Back · Rear delts',
+    id: 'w3', name: 'Pull A', subtitle: 'Biceps · Pulldown then Row · Rear delts · Forearms',
     exercises: [
       ex('Incline dumbbell curl', 3, 120, { myoLast: true }),
       ex('Single arm cable curl', 3, 120, { myoLast: true }),
@@ -45,7 +45,7 @@ export const DEFAULT_TEMPLATES = [
     ],
   },
   {
-    id: 'w4', name: 'Workout 4', subtitle: 'Triceps · Chest · Shoulders',
+    id: 'w4', name: 'Push B', subtitle: 'Triceps first · Chest press · Cable fly · Shoulders',
     exercises: [
       ex('Overhead tricep extension', 3, 120, { myoLast: true }),
       ex('Tricep pushdown', 3, 120),
@@ -56,7 +56,7 @@ export const DEFAULT_TEMPLATES = [
     ],
   },
   {
-    id: 'w5', name: 'Workout 5', subtitle: 'Legs',
+    id: 'w5', name: 'Legs B', subtitle: 'Leg press · SLDL · Hamstrings · Glutes',
     exercises: [
       ex('Single leg press', 3, 180, { myoLast: true }),
       ex('Single leg extension', 2, 120, { myoLast: true }),
@@ -66,13 +66,14 @@ export const DEFAULT_TEMPLATES = [
     ],
   },
   {
-    id: 'w6', name: 'Workout 6', subtitle: 'Biceps · Back · Rear delts',
+    id: 'w6', name: 'Pull B', subtitle: 'Biceps · Row then Pulldown · Rear delts · Forearms',
     exercises: [
       ex('Incline dumbbell curl', 3, 120, { myoLast: true }),
       ex('Single arm cable curl', 3, 120, { myoLast: true }),
-      ex('Lat pulldown', 3, 180, { myoLast: true }),
-      ex('Machine row', 3, 180, { myoLast: true }),
+      ex('Machine row', 3, 180),
+      ex('Lat pulldown', 3, 180),
       ex('Rear delt cable face pull', 4, 120),
+      ex('Forearm machine curl', 4, 90),
     ],
   },
 ];

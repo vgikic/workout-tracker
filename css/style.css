@@ -180,12 +180,15 @@ textarea { min-height: 70px; resize: vertical; }
 .set-row { margin-bottom: 6px; }
 .set-row input { padding: 8px 8px; min-height: 40px; text-align: center; }
 .set-row .n { color: var(--muted); font-size: .85rem; font-weight: 600; text-align: center; }
+.set-row button.n { appearance: none; background: var(--surface-2); border: 1px dashed var(--border); border-radius: 8px; min-height: 40px; padding: 0; cursor: pointer; position: relative; }
+.set-row button.n::after { content: 'M'; position: absolute; top: 2px; right: 3px; font-size: .5rem; color: var(--muted); opacity: .6; }
+.set-row.myo button.n { background: var(--accent); color: var(--accent-text); border-style: solid; border-color: transparent; }
+.set-row.myo button.n::after { color: var(--accent-text); opacity: 1; }
 .set-row .prev { font-size: .72rem; color: var(--muted); text-align: center; line-height: 1.2; font-variant-numeric: tabular-nums; }
 .set-row .cmp { text-align: center; font-weight: 800; font-size: 1rem; }
 .set-row .cmp.up { color: var(--good); }
 .set-row .cmp.down { color: var(--bad); }
 .set-row .cmp.same { color: var(--muted); }
-.set-row.myo .n::after { content: 'M'; font-size: .55rem; vertical-align: super; color: var(--accent); margin-left: 1px; }
 .set-row input.myo-in { grid-column: 2 / 5; text-align: left; font-size: .9rem; }
 .myo-hint { font-size: .7rem; color: var(--muted); grid-column: 2 / 6; margin-top: -2px; margin-bottom: 4px; }
 .myo-row { display: grid; grid-template-columns: 34px 1fr; gap: 6px; align-items: center; margin-bottom: 6px; }
