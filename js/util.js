@@ -96,3 +96,11 @@ export function parseMyo(str) {
 }
 
 export function sumArr(arr) { return arr.reduce((a, b) => a + b, 0); }
+
+// "82,5" and "82.5" both become 82.5; anything unparsable becomes '' (empty set field)
+export function parseNum(v) {
+  const s = String(v ?? '').trim().replace(',', '.');
+  if (s === '') return '';
+  const n = Number(s);
+  return Number.isFinite(n) ? n : '';
+}

@@ -3,7 +3,7 @@ import { GitHubSync } from './sync.js';
 import { DEFAULT_TEMPLATES, slug } from './templates.js';
 import * as S from './stats.js';
 import { destroyCharts, weightChart, lineChart, barChart } from './charts.js';
-import { todayStr, fmtDate, fmtDateLong, uid, fmtKg, esc, h, raw, restLabel, parseMyo, sumArr, daysBetween, addDays } from './util.js';
+import { todayStr, fmtDate, fmtDateLong, uid, fmtKg, esc, h, raw, restLabel, parseMyo, parseNum, sumArr, daysBetween, addDays } from './util.js';
 
 // ---------------------------------------------------------------- state
 let data = loadData();
@@ -295,13 +295,13 @@ function viewSession(id) {
       const ex = s.exercises[+inp.dataset.ex]; const set = ex.sets[+inp.dataset.set];
       const f = inp.dataset.field;
       if (f === 'myo') set.myo = parseMyo(inp.value);
-      else set[f] = inp.value === '' ? '' : Number(inp.value);
+      else set[f] = parseNum(inp.value);
       if (f === 'kg') {
         // same weight for every set of an exercise: propagate to sets that are empty or still hold the old value
         const old = inp.dataset.prev ?? '';
         ex.sets.forEach((other, j) => {
           if (j === +inp.dataset.set) return;
-          if (String(other.kg ?? '') === '' || String(other.kg) === String(old)) {
+          if (parseNum(other.kg) === '' || parseNum(other.kg) === parseNum(old)) {
             other.kg = set.kg;
             const oi = $view.querySelector(`input[data-ex="${inp.dataset.ex}"][data-set="${j}"][data-field="kg"]`);
             if (oi) { oi.value = set.kg; oi.dataset.prev = inp.value; const pj = pexSets(ex)[j]; const c2 = $view.querySelector(`.cmp[data-ex="${inp.dataset.ex}"][data-set="${j}"]`); if (c2) { const r2 = cmpMarkup(other, pj); c2.className = r2.cls; c2.textContent = r2.txt; } }
@@ -358,7 +358,7 @@ function setRow(ex, i, si, set, pset, ssName) {
   const kgVal = set.kg === '' || set.kg == null ? '' : set.kg;
   let html = `<div class="set-row ${isMyo ? 'myo' : ''}">
     <button class="n" data-mtoggle data-ex="${i}" data-set="${si}" title="${isMyo ? 'Myo-rep match set – tap to make it a normal set' : 'Tap to make this a myo-rep match set'}">${ssName ? esc(ssName[0].toUpperCase()) : ''}${si + 1}</button>
-    <input type="number" inputmode="decimal" step="0.5" min="0" placeholder="${pset && S.setDone(pset) ? fmtKg(Number(pset.kg)) : 'kg'}" value="${kgVal}" data-prev="${kgVal}" data-ex="${i}" data-set="${si}" data-field="kg">
+    <input type="text" inputmode="decimal" autocomplete="off" placeholder="${pset && S.setDone(pset) ? fmtKg(Number(pset.kg)) : 'kg'}" value="${kgVal}" data-prev="${kgVal}" data-ex="${i}" data-set="${si}" data-field="kg">
     <input type="number" inputmode="numeric" step="1" min="0" placeholder="${pset && S.setDone(pset) ? pset.reps : 'reps'}" value="${set.reps === '' || set.reps == null ? '' : set.reps}" data-ex="${i}" data-set="${si}" data-field="reps">
     <span class="prev">${pset ? esc(setLabel(pset)) : '–'}</span>
     <span class="${cm.cls}" data-ex="${i}" data-set="${si}">${cm.txt}</span>
@@ -383,7 +383,7 @@ function viewWeight() {
   let html = `<h1 class="mb">Body weight</h1>
   <div class="card"><div class="weight-entry">
     <label class="field" style="margin:0"><span>Date</span><input type="date" id="w-date" value="${today}" max="${today}"></label>
-    <label class="field" style="margin:0"><span>Weight (kg)</span><input type="number" id="w-kg" inputmode="decimal" step="0.1" min="20" max="300" placeholder="${all.length ? fmtKg(Number(all[all.length - 1].kg)) : '80.0'}" value="${todayEntry ? todayEntry.kg : ''}"></label>
+    <label class="field" style="margin:0"><span>Weight (kg)</span><input type="text" id="w-kg" inputmode="decimal" autocomplete="off" placeholder="${all.length ? fmtKg(Number(all[all.length - 1].kg)) : '80.0'}" value="${todayEntry ? todayEntry.kg : ''}"></label>
     <button class="btn primary" id="w-save">${todayEntry ? 'Update' : 'Save'}</button>
   </div></div>`;
 
@@ -426,8 +426,8 @@ function viewWeight() {
 
   // handlers
   const save = () => {
-    const date = $view.querySelector('#w-date').value; const kg = parseFloat($view.querySelector('#w-kg').value);
-    if (!date || !kg || kg <= 0) { toast('Enter a valid weight'); return; }
+    const date = $view.querySelector('#w-date').value; const kg = parseNum($view.querySelector('#w-kg').value);
+    if (!date || !kg || kg <= 0 || kg > 400) { toast('Enter a valid weight, e.g. 82,5'); return; }
     upsertWeight(date, kg); toast(`Saved ${fmtKg(kg)} kg for ${fmtDate(date)}`); render();
   };
   $view.querySelector('#w-save').onclick = save;
