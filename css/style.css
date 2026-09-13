@@ -190,10 +190,10 @@ textarea { min-height: 70px; resize: vertical; }
 .ex-vol .good, .ex-vol .bad { font-weight: 700; }
 .set-row.myo button.n::after { color: var(--accent-text); opacity: 1; }
 .set-row .prev { font-size: .72rem; color: var(--muted); text-align: center; line-height: 1.2; font-variant-numeric: tabular-nums; }
-.set-row .cmp { text-align: center; font-weight: 800; font-size: 1rem; }
-.set-row .cmp.up { color: var(--good); }
-.set-row .cmp.down { color: var(--bad); }
-.set-row .cmp.same { color: var(--muted); }
+.cmp { text-align: center; font-weight: 800; font-size: 1rem; }
+.cmp.up { color: var(--good); }
+.cmp.down { color: var(--bad); }
+.cmp.same { color: var(--muted); }
 .set-row input.myo-in { grid-column: 2 / 5; text-align: left; font-size: .9rem; }
 .myo-hint { font-size: .7rem; color: var(--muted); grid-column: 2 / 6; margin-top: -2px; margin-bottom: 4px; }
 .myo-row { display: grid; grid-template-columns: 34px 1fr; gap: 6px; align-items: center; margin-bottom: 6px; }

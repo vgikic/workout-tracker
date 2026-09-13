@@ -210,7 +210,7 @@ function viewSessionReadOnly(s) {
   for (const ex of s.exercises) {
     const pex = prevEx(ex); const sum = S.exerciseSummary(ex);
     html += `<div class="card ex-card"><div class="ex-title">${esc(ex.name)}</div>
-      <div class="ex-meta mb">${sum ? `top ${fmtKg(sum.topKg)} kg · vol ${Math.round(sum.volume)} · e1RM ${fmtKg(sum.e1rm, 0)}` : 'no sets logged'}</div>`;
+      <div class="ex-meta mb">${sum ? `top ${fmtKg(sum.topKg)} kg · e1RM ${fmtKg(sum.e1rm, 0)} ${volMarkup(ex, pex)}` : 'no sets logged'}</div>`;
     if (sum) {
       html += `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Set</th><th>Done</th><th>Last time</th><th></th></tr></thead><tbody>`;
       ex.sets.forEach((set, si) => {
