@@ -92,7 +92,8 @@ export function restLabel(sec) {
 
 export function parseMyo(str) {
   if (!str) return [];
-  return String(str).split(/[\s,;+/]+/).map(Number).filter(n => Number.isFinite(n) && n > 0);
+  // mini-set reps are whole numbers, so a dot is a separator too (the iOS decimal keypad shows either , or .)
+  return String(str).split(/[\s,;.+/]+/).map(Number).filter(n => Number.isFinite(n) && n > 0);
 }
 
 export function sumArr(arr) { return arr.reduce((a, b) => a + b, 0); }

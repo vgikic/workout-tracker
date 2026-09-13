@@ -183,6 +183,11 @@ textarea { min-height: 70px; resize: vertical; }
 .set-row button.n { appearance: none; background: var(--surface-2); border: 1px dashed var(--border); border-radius: 8px; min-height: 40px; padding: 0; cursor: pointer; position: relative; }
 .set-row button.n::after { content: 'M'; position: absolute; top: 2px; right: 3px; font-size: .5rem; color: var(--muted); opacity: .6; }
 .set-row.myo button.n { background: var(--accent); color: var(--accent-text); border-style: solid; border-color: transparent; }
+/* superset: second exercise's rows get a tint and a left bar so the two lifts can't be confused */
+.set-row.ss, .myo-row.ss { border-radius: 8px; padding: 2px 4px; margin-left: -4px; margin-right: -4px; }
+.set-row.ss-1, .myo-row.ss-1 { background: var(--surface-2); }
+.set-row.ss-1 input, .myo-row.ss-1 input { background: var(--surface); }
+.ex-vol .good, .ex-vol .bad { font-weight: 700; }
 .set-row.myo button.n::after { color: var(--accent-text); opacity: 1; }
 .set-row .prev { font-size: .72rem; color: var(--muted); text-align: center; line-height: 1.2; font-variant-numeric: tabular-nums; }
 .set-row .cmp { text-align: center; font-weight: 800; font-size: 1rem; }

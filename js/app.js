@@ -110,8 +110,21 @@ function agoLabel(dateStr) {
 function setLabel(set) {
   if (!S.setDone(set)) return '–';
   let s = `${fmtKg(Number(set.kg))}×${set.reps}`;
-  if (set.myo && set.myo.length) s += ' +' + set.myo.join('+');
+  if (set.myo && set.myo.length) s += ' +' + set.myo.join(',');
   return s;
+}
+// "vol 898 vs 900 (−0.2%)" for one exercise, live while logging
+function volMarkup(ex, pex) {
+  const cur = S.exerciseSummary(ex), prev = pex && S.exerciseSummary(pex);
+  if (!cur && !prev) return '';
+  if (!prev) return `· vol ${Math.round(cur.volume)}`;
+  if (!cur) return `· vol 0 vs ${Math.round(prev.volume)}`;
+  return `· vol ${Math.round(cur.volume)} vs ${Math.round(prev.volume)} ${pctBadge(prev.volume ? (cur.volume - prev.volume) / prev.volume * 100 : null)}`;
+}
+function sessionVolMarkup(s, prev) {
+  const cur = S.sessionVolume(s), pv = prev ? S.sessionVolume(prev) : 0;
+  if (!prev || !pv) return `Volume ${Math.round(cur).toLocaleString()} kg`;
+  return `Volume ${Math.round(cur).toLocaleString()} vs ${Math.round(pv).toLocaleString()} kg ${pctBadge((cur - pv) / pv * 100)}`;
 }
 function progHtml(p) {
   if (!p) return '<span class="muted tiny">first</span>';
@@ -166,9 +179,17 @@ function startSession(templateId) {
   if (!t) return;
   const existing = liveSessions(data).find(s => s.inProgress && s.templateId === templateId);
   if (existing && !confirm(`${t.name} already has an unfinished session from ${fmtDate(existing.date)}. Start a new one anyway?`)) { go('#/session/' + existing.id); return; }
+  // Set count and myo flags carry over from the last session of this workout, unless the template was edited since then.
+  const prev = S.lastSessionOfTemplate(data, templateId);
   const s = {
     id: uid(), templateId, date: todayStr(), startedAt: Date.now(), inProgress: true, notes: '',
-    exercises: t.exercises.map(e => ({ id: e.id, name: e.name, rest: e.rest, myoLast: !!e.myoLast, supersetWithPrev: !!e.supersetWithPrev, sets: Array.from({ length: e.sets }, (_, si) => ({ kg: '', reps: '', myo: [], isMyo: !!e.myoLast && si === e.sets - 1 })) })),
+    exercises: t.exercises.map(e => {
+      const pex = prev && prev.exercises.find(p => p.id === e.id || p.name === e.name);
+      const usePrev = pex && pex.sets.length && (t.updatedAt || 0) < (prev.startedAt || 0);
+      const n = usePrev ? pex.sets.length : e.sets;
+      const sets = Array.from({ length: n }, (_, si) => ({ kg: '', reps: '', myo: [], isMyo: usePrev ? isMyoSet(pex, pex.sets[si], si) : (!!e.myoLast && si === e.sets - 1) }));
+      return { id: e.id, name: e.name, rest: e.rest, myoLast: !!e.myoLast, supersetWithPrev: !!e.supersetWithPrev, sets };
+    }),
     updatedAt: Date.now(),
   };
   data.sessions.push(s); persist();
@@ -184,7 +205,8 @@ function viewSessionReadOnly(s) {
   const prev = S.previousSession(data, s);
   const prevEx = ex => prev && prev.exercises.find(p => p.id === ex.id || p.name === ex.name);
   const p = S.sessionProgress(s, prev);
-  let html = `<div class="row between mb"><div><h1>${esc(t ? t.name : 'Workout')}</h1><div class="muted small">${fmtDateLong(s.date)}${prev ? ` · vs ${fmtDate(prev.date)}` : ' · first session'}</div></div>${progHtml(p)}</div>`;
+  let html = `<div class="row between mb"><div><h1>${esc(t ? t.name : 'Workout')}</h1><div class="muted small">${fmtDateLong(s.date)}${prev ? ` · vs ${fmtDate(prev.date)}` : ' · first session'}</div>
+    <div class="small mt" style="margin-top:6px">${sessionVolMarkup(s, prev)}</div></div>${progHtml(p)}</div>`;
   for (const ex of s.exercises) {
     const pex = prevEx(ex); const sum = S.exerciseSummary(ex);
     html += `<div class="card ex-card"><div class="ex-title">${esc(ex.name)}</div>
@@ -233,11 +255,11 @@ function viewSession(id) {
     html += `<div class="set-head"><span>Set</span><span>kg</span><span>Reps</span><span>Last time</span><span></span></div>`;
     const maxSets = Math.max(...g.map(i => s.exercises[i].sets.length));
     for (let si = 0; si < maxSets; si++) {
-      for (const i of g) {
-        const ex = s.exercises[i]; const set = ex.sets[si]; if (!set) continue;
+      g.forEach((i, pos) => {
+        const ex = s.exercises[i]; const set = ex.sets[si]; if (!set) return;
         const pex = prevEx(ex); const pset = pex && pex.sets[si];
-        html += setRow(ex, i, si, set, pset, isSS ? ex.name : null);
-      }
+        html += setRow(ex, i, si, set, pset, isSS ? ex.name : null, pos);
+      });
     }
     html += `<div class="row mt" style="justify-content:flex-end;gap:6px">${g.map(i => `<button class="btn small" data-addset="${i}">+ set${isSS ? ' ' + shortName(s.exercises[i].name) : ''}</button><button class="btn small" data-rmset="${i}" ${s.exercises[i].sets.length <= 1 ? 'disabled' : ''}>− set${isSS ? ' ' + shortName(s.exercises[i].name) : ''}</button>`).join('')}</div>`;
     html += `</div>`;
@@ -268,7 +290,9 @@ function viewSession(id) {
       if (!done && !confirm('No sets logged. Finish anyway?')) return;
       s.inProgress = false; touch(s);
       const p = S.sessionProgress(s, prev);
-      toast(p ? `Finished · ▲${p.up} =${p.same} ▼${p.down} vs last time` : 'Finished · first session logged');
+      const cur = S.sessionVolume(s), pv = prev ? S.sessionVolume(prev) : 0;
+      const volTxt = pv ? ` · volume ${Math.round(cur).toLocaleString()} vs ${Math.round(pv).toLocaleString()} (${cur >= pv ? '+' : ''}${((cur - pv) / pv * 100).toFixed(1)}%)` : ` · volume ${Math.round(cur).toLocaleString()} kg`;
+      toast(p ? `Finished · ▲${p.up} =${p.same} ▼${p.down}${volTxt}` : `Finished · first session logged${volTxt}`, 7000);
       doSync(`${t ? t.name : 'Workout'} ${s.date}`);
       go('#/history');
     } else {
@@ -296,8 +320,8 @@ function viewSession(id) {
       const f = inp.dataset.field;
       if (f === 'myo') set.myo = parseMyo(inp.value);
       else set[f] = parseNum(inp.value);
-      if (f === 'kg') {
-        // same weight for every set of an exercise: propagate to sets that are empty or still hold the old value
+      if (f === 'kg' && +inp.dataset.set === 0) {
+        // first set sets the weight for the exercise: fill sets that are empty or still hold set 1's old value; other sets edit individually
         const old = inp.dataset.prev ?? '';
         ex.sets.forEach((other, j) => {
           if (j === +inp.dataset.set) return;
@@ -307,9 +331,11 @@ function viewSession(id) {
             if (oi) { oi.value = set.kg; oi.dataset.prev = inp.value; const pj = pexSets(ex)[j]; const c2 = $view.querySelector(`.cmp[data-ex="${inp.dataset.ex}"][data-set="${j}"]`); if (c2) { const r2 = cmpMarkup(other, pj); c2.className = r2.cls; c2.textContent = r2.txt; } }
           }
         });
-        inp.dataset.prev = inp.value;
       }
+      if (f === 'kg') inp.dataset.prev = inp.value;
       touch(s);
+      const vol = $view.querySelector(`.ex-vol[data-ex="${inp.dataset.ex}"]`);
+      if (vol) vol.innerHTML = volMarkup(ex, prevEx(ex));
       // live update of compare marker and myo summary without re-render (keeps keyboard focus)
       const pex = prevEx(ex); const pset = pex && pex.sets[+inp.dataset.set];
       const cmp = $view.querySelector(`.cmp[data-ex="${inp.dataset.ex}"][data-set="${inp.dataset.set}"]`);
@@ -333,7 +359,7 @@ function shortName(n) { return n.split(' ').slice(-1)[0].toLowerCase(); }
 function exHeader(ex, i, pex, compact = false) {
   const psum = pex && S.exerciseSummary(pex);
   return `<div class="row between" style="margin-bottom:${compact ? 4 : 6}px"><div class="grow"><div class="ex-title">${esc(ex.name)}</div>
-    <div class="ex-meta">${ex.sets.length} sets · rest ${restLabel(ex.rest)}${psum ? ` · last: top ${fmtKg(psum.topKg)} kg, vol ${Math.round(psum.volume)}` : ''}</div></div>
+    <div class="ex-meta">${ex.sets.length} sets · rest ${restLabel(ex.rest)}${psum ? ` · last top ${fmtKg(psum.topKg)} kg` : ''} <span class="ex-vol" data-ex="${i}">${volMarkup(ex, pex)}</span></div></div>
     ${psum ? `<button class="btn small" data-copylast="${i}" title="Fill every set with last time's numbers">⟲ Copy last</button>` : ''}</div>`;
 }
 function cmpMarkup(set, pset) {
@@ -352,19 +378,21 @@ function myoSummary(set, pset) {
   if (pset && pset.myo && pset.myo.length) txt += ` · last time ${pset.myo.length} mini-sets`;
   return txt;
 }
-function setRow(ex, i, si, set, pset, ssName) {
+function setRow(ex, i, si, set, pset, ssName, ssPos = 0) {
   const isMyo = isMyoSet(ex, set, si);
   const cm = cmpMarkup(set, pset);
   const kgVal = set.kg === '' || set.kg == null ? '' : set.kg;
-  let html = `<div class="set-row ${isMyo ? 'myo' : ''}">
-    <button class="n" data-mtoggle data-ex="${i}" data-set="${si}" title="${isMyo ? 'Myo-rep match set – tap to make it a normal set' : 'Tap to make this a myo-rep match set'}">${ssName ? esc(ssName[0].toUpperCase()) : ''}${si + 1}</button>
+  // superset rows: letter from the last word of the name (Press / Laterals), second exercise tinted
+  const lbl = ssName ? esc(shortName(ssName)[0].toUpperCase()) : '';
+  let html = `<div class="set-row ${isMyo ? 'myo' : ''} ${ssName ? 'ss ss-' + (ssPos % 2) : ''}" ${ssName ? `title="${esc(ssName)}"` : ''}>
+    <button class="n" data-mtoggle data-ex="${i}" data-set="${si}" title="${isMyo ? 'Myo-rep match set – tap to make it a normal set' : 'Tap to make this a myo-rep match set'}">${lbl}${si + 1}</button>
     <input type="text" inputmode="decimal" autocomplete="off" placeholder="${pset && S.setDone(pset) ? fmtKg(Number(pset.kg)) : 'kg'}" value="${kgVal}" data-prev="${kgVal}" data-ex="${i}" data-set="${si}" data-field="kg">
     <input type="number" inputmode="numeric" step="1" min="0" placeholder="${pset && S.setDone(pset) ? pset.reps : 'reps'}" value="${set.reps === '' || set.reps == null ? '' : set.reps}" data-ex="${i}" data-set="${si}" data-field="reps">
     <span class="prev">${pset ? esc(setLabel(pset)) : '–'}</span>
     <span class="${cm.cls}" data-ex="${i}" data-set="${si}">${cm.txt}</span>
   </div>`;
   if (isMyo) {
-    html += `<div class="myo-row"><span class="l">MYO</span><input type="text" inputmode="numeric" placeholder="mini-set reps, e.g. 4 4 4" value="${esc((set.myo || []).join(' '))}" data-ex="${i}" data-set="${si}" data-field="myo">
+    html += `<div class="myo-row ${ssName ? 'ss ss-' + (ssPos % 2) : ''}"><span class="l">MYO</span><input type="text" inputmode="decimal" autocomplete="off" placeholder="mini-set reps, e.g. 4, 4, 3" value="${esc((set.myo || []).join(', '))}" data-ex="${i}" data-set="${si}" data-field="myo">
       <span class="sub myo-sub" data-ex="${i}" data-set="${si}">${esc(myoSummary(set, pset))}</span></div>`;
   }
   return html;
